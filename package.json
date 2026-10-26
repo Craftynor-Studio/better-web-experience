@@ -1,0 +1,10 @@
+{
+  "name": "better-web-experience",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Site-specific Experiences that make websites behave like apps.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=20" }
+}
