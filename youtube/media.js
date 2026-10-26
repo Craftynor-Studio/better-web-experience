@@ -34,6 +34,53 @@ new MutationObserver(function () { unmute(document); })
 
 var pipRestore = null;
 
+// The site's own page history. Every page YouTube opens is numbered in its history entry, so Back can step through
+// exactly the pages of this visit and leave the site only from the first one.
+var pages = (function () {
+  var h = window.history;
+  if (!h || typeof h.pushState !== 'function') return { depth: function () { return 0; } };
+  var KEY = '__bweDepth';
+  var depth = numbered(h.state);
+  function numbered(data) { return data && typeof data === 'object' && typeof data[KEY] === 'number' ? data[KEY] : 0; }
+  function mark(data, value) {
+    if (data === null || data === undefined) { var fresh = {}; fresh[KEY] = value; return fresh; }
+    if (typeof data !== 'object' || Array.isArray(data)) return data;
+    var copy = Object.assign({}, data); copy[KEY] = value; return copy;
+  }
+  var push = h.pushState, replace = h.replaceState;
+  h.pushState = function (data, title, url) { depth += 1; return push.call(h, mark(data, depth), title, url); };
+  h.replaceState = function (data, title, url) { return replace.call(h, mark(data, depth), title, url); };
+  window.addEventListener('popstate', function (event) { depth = numbered(event.state); });
+  return { depth: function () { return depth; } };
+})();
+
+// A real playback failure in the open player: a media error or YouTube's own error screen. Paused, buffering and
+// loading don't count.
+function playbackError(doc) {
+  var video = doc.querySelector('video');
+  if (video && video.error) return true;
+  var screen = doc.querySelector('.ytp-error, ytm-player-error-message-renderer, .player-error-message, .ytp-error-content');
+  return !!(screen && screen.getClientRects().length);
+}
+
+function fullPlayer() {
+  var o = overlay();
+  return o && o.isOpen() && o.mode() === 'full' ? o : null;
+}
+
+// Asks YouTube's own router to open the current address again, which reloads the page's data without a site reload.
+function refreshPage() {
+  var link = document.createElement('a');
+  link.href = location.href;
+  link.hidden = true;
+  (document.body || document.documentElement).appendChild(link);
+  var click = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+  link.dispatchEvent(click);
+  link.remove();
+  if (click.defaultPrevented) window.scrollTo(0, 0);
+  return click.defaultPrevented;
+}
+
 experience.register({
   media: {
     state: function () {
@@ -83,28 +130,34 @@ experience.register({
     }
   },
 
-  // 'handled': the overlay closed a sheet or shrank. 'exit': leave the page without WebView history, which would step
-  // into the overlay iframe's videos. 'unhandled': the browser goes back as usual.
+  // Full player: close a sheet or shrink to the mini player. Otherwise step back through this visit's YouTube pages;
+  // from the first one, 'exit' while a video is open (the mini player can't follow to another site) or let the browser
+  // go back as usual.
   back: function () {
-    var o = overlay();
-    if (!o || typeof o.handleBackAction !== 'function') return 'unhandled';
-    return o.handleBackAction();
+    var o = fullPlayer();
+    if (o && o.handleBackAction() === 'handled') return 'handled';
+    if (pages.depth() > 0) { window.history.back(); return 'handled'; }
+    var open = overlay();
+    return open && open.isOpen() ? 'exit' : 'unhandled';
   },
 
-  // Refresh only YouTube's home feed through its own page router. If the page isn't running (it failed to load),
-  // nothing intercepts the click and the browser reloads the page instead.
+  // Pull-to-refresh while the full player shows a working video belongs to the player (swipe down shrinks it).
+  canRefresh: function () {
+    var o = fullPlayer();
+    return !o || playbackError(activeDocument());
+  },
+
+  // Full player with a playback error: load the same video again. Otherwise refresh the current YouTube page through
+  // its router (Home, search, History, a channel…); the mini player keeps playing. If the router isn't running (the
+  // page failed to load), nothing takes the click and the browser reloads the page instead.
   refresh: function () {
-    var o = overlay();
-    if (o && o.isOpen() && o.mode() === 'full' && typeof o.minimize === 'function') o.minimize();
-    var link = document.createElement('a');
-    link.href = '/';
-    link.hidden = true;
-    (document.body || document.documentElement).appendChild(link);
-    var click = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-    link.dispatchEvent(click);
-    link.remove();
-    if (click.defaultPrevented) window.scrollTo(0, 0);
-    return click.defaultPrevented;
+    var o = fullPlayer();
+    if (o) {
+      if (playbackError(activeDocument()) && typeof o.reload === 'function') return o.reload();
+      if (typeof o.minimize === 'function') o.minimize();
+      return true;
+    }
+    return refreshPage();
   },
 
   // Shows only the player, for picture-in-picture.

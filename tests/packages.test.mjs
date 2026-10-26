@@ -75,7 +75,7 @@ for (const id of packages()) {
     }
     (e.capabilities || []).forEach((c) => assert.ok(CAPABILITIES.has(c), `capability ${c}`));
     checkOptions(e.options || []);
-    for (const file of readdirSync(join(root, id))) assert.match(file, FILE, `file name ${file}`);
+    for (const file of readdirSync(join(root, id))) if (file !== 'README.md') assert.match(file, FILE, `file name ${file}`);
   });
 
   test(`${id}: scripts follow the security rules and parse`, () => {

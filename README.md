@@ -11,6 +11,7 @@ WebView app can load these packages by following the format and script API below
 ```
 <id>/experience.json   description, sites, scripts, capabilities, options
 <id>/*.js              the scripts it names
+<id>/README.md         what the Experience does and how (not published to apps)
 tests/                 checks every package (node --test)
 ```
 
@@ -89,6 +90,7 @@ experience.register({   // call once with the hooks named in "capabilities"
   },
   back() { return 'handled' | 'exit' | 'unhandled'; },
   refresh() { return true /* handled */ || false /* let the browser reload */; },
+  canRefresh() { return true /* pull-to-refresh allowed */ || false /* a swipe down belongs to the page */; },
   pip: { enter() {}, exit() {} }
 });
 ```
@@ -100,6 +102,10 @@ experience.register({   // call once with the hooks named in "capabilities"
 - **refresh**: asked first on pull-to-refresh. Return `true` if the script refreshed its own content. If the script
   isn't running (for example the page failed to load), returns `false`, throws or takes longer than 300 ms, the browser
   reloads the page.
+- **canRefresh** (optional, part of `refresh`): return `false` while a swipe down at the top of the page should go to
+  the page instead of starting pull-to-refresh, for example a full-screen player that shrinks on swipe down. The
+  browser checks it a few times a second, because the gesture starts before the page could be asked. Without it,
+  pull-to-refresh is always available.
 - **pip**: `enter()` before picture-in-picture or the browser's mini player window, `exit()` after. Only needed when the
   browser can't simply crop the page to the video.
 
