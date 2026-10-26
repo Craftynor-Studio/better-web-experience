@@ -1,0 +1,29 @@
+{
+  "format": "better-web-experience",
+  "version": 1,
+  "published": 1792988254923,
+  "source": "c40362ee1ad2b8e09b16e2d315b3b7e4fb643dc9",
+  "experiences": [
+    {
+      "id": "youtube",
+      "version": 1,
+      "minApp": 1,
+      "disabled": false,
+      "fingerprint": "a641613c72d0852a765bc40de296b94e40d678a4bbee150c7a0c1f50624c2e58",
+      "files": [
+        {
+          "name": "youtube/experience.json",
+          "sha256": "bc1da1f2607a383689c85aded1f6d4702911bd4c2cbbab3f129d0b4f41ef324e"
+        },
+        {
+          "name": "youtube/media.js",
+          "sha256": "3b2c09f6eed8580c0009855212f1f0eca1cc0eaf172131e8ab4bcfecbc857b62"
+        },
+        {
+          "name": "youtube/overlay.js",
+          "sha256": "39aadf3053b8787ef279093b8de0bd91b3ac5612bfe46f9bc656bc6bd403a733"
+        }
+      ]
+    }
+  ]
+}
