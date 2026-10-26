@@ -2,7 +2,7 @@
   "id": "youtube",
   "name": "YouTube",
   "description": "Videos open over the feed like the YouTube app, with a small player you can drag. Unmutes automatically and adds full controls to the media notification.",
-  "version": 1,
+  "version": 2,
   "sites": ["youtube.com", "*.youtube.com"],
   "scripts": [
     { "file": "media.js", "run": "document_start" },
