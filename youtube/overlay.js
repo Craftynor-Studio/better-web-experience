@@ -53,7 +53,6 @@
     mediaLoading: false,
     animationTimer: 0,
     animationFrame: 0,
-    parentDepth: 0,
   };
   var api = null;
 
@@ -266,6 +265,18 @@
     state.gesture = null;
   }
 
+  // Videos opened inside the player replace its history entry instead of adding one, so the browser's history holds
+  // only the site's own pages and Back never steps into old videos.
+  function keepFrameOutOfHistory(frameWindow) {
+    try {
+      var frameHistory = frameWindow.history;
+      if (frameWindow.__playOverlayNoHistory) return;
+      var replace = frameHistory.replaceState;
+      frameHistory.pushState = function (data, title, url) { return replace.call(frameHistory, data, title, url); };
+      frameWindow.__playOverlayNoHistory = true;
+    } catch (_) {}
+  }
+
   function installFrameEnhancements() {
     var frameDocument = getFrameDocument();
     if (!frameDocument || !frameDocument.documentElement) return false;
@@ -274,6 +285,7 @@
     removeFrameListeners();
     state.frameDocument = frameDocument;
     state.frameWindow = frameDocument.defaultView;
+    keepFrameOutOfHistory(state.frameWindow);
     state.frameWindow.addEventListener('click', onFrameClick, true);
     frameDocument.addEventListener('pointerdown', onFramePointerDown, true);
     frameDocument.addEventListener('pointermove', onFramePointerMove, { capture: true, passive: false });
@@ -1216,7 +1228,7 @@
     state.url = parsed.href;
     if (!navigateFrameSpa(parsed.href)) {
       try {
-        state.frame.contentWindow.location.assign(parsed.href);
+        state.frame.contentWindow.location.replace(parsed.href);
       } catch (_) {
         state.frame.src = parsed.href;
       }
@@ -1422,15 +1434,8 @@
 
   function handleBackAction() {
     if (!state.host || state.mode === 'closed') return 'unhandled';
-    if (state.mode === 'mini') {
-      if (state.parentDepth > 0) {
-        state.parentDepth -= 1;
-        history.back();
-        return 'handled';
-      }
-      // Never let Android WebView.goBack() enter the iframe's video history.
-      return 'exit';
-    }
+    // The mini player leaves Back to the page; media.js steps back through the site's own pages.
+    if (state.mode === 'mini') return 'unhandled';
     if (closeFrameSubview()) return 'handled';
     return minimizeAnimated() ? 'handled' : 'unhandled';
   }
@@ -1453,12 +1458,7 @@
     } catch (_) {
       return;
     }
-    if (url.origin !== location.origin || !isPlaybackPath(url)) {
-      if (state.mode === 'mini' && url.origin === location.origin && url.href !== location.href) {
-        state.parentDepth += 1;
-      }
-      return;
-    }
+    if (url.origin !== location.origin || !isPlaybackPath(url)) return;
 
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -1510,6 +1510,12 @@
     destroy: destroy,
     isOpen: function () { return !!state.host && state.mode !== 'closed'; },
     mode: function () { return state.mode; },
+    // Loads the current video again in the same player (after a playback error).
+    reload: function () {
+      if (!state.host || state.mode === 'closed') return false;
+      var current = currentFrameUrl();
+      return replaceFrameDocument(current && isPlaybackPath(current) ? current.href : state.url);
+    },
     getDocument: function () {
       return state.mode === 'closed' ? null : getFrameDocument();
     },

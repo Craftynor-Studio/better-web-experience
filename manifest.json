@@ -1,27 +1,27 @@
 {
   "format": "better-web-experience",
   "version": 1,
-  "published": 1792988254923,
-  "source": "c40362ee1ad2b8e09b16e2d315b3b7e4fb643dc9",
+  "published": 1792994374789,
+  "source": "09ec91c91d4001bde00eb3559acd6d4f2f2def35",
   "experiences": [
     {
       "id": "youtube",
-      "version": 1,
+      "version": 2,
       "minApp": 1,
       "disabled": false,
-      "fingerprint": "a641613c72d0852a765bc40de296b94e40d678a4bbee150c7a0c1f50624c2e58",
+      "fingerprint": "99455ed0c26d59d2b6d456df24eba6c5ede4d945c1cc7f45fdc9f2a27a62427f",
       "files": [
         {
           "name": "youtube/experience.json",
-          "sha256": "bc1da1f2607a383689c85aded1f6d4702911bd4c2cbbab3f129d0b4f41ef324e"
+          "sha256": "c11147a5e3ed7d96358ac308c8fe7b88d0dd0b961f3b1310fedf9145ce19e1fe"
         },
         {
           "name": "youtube/media.js",
-          "sha256": "3b2c09f6eed8580c0009855212f1f0eca1cc0eaf172131e8ab4bcfecbc857b62"
+          "sha256": "10cd98fbc6a0052fca431839384150ecc219ea6c495d1c9f24f92a0422ef15f2"
         },
         {
           "name": "youtube/overlay.js",
-          "sha256": "39aadf3053b8787ef279093b8de0bd91b3ac5612bfe46f9bc656bc6bd403a733"
+          "sha256": "9f3d44e5937e20b72ead011820c960887e4f333583ef75a0d463e81d93a29e3f"
         }
       ]
     }
