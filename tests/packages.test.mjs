@@ -12,7 +12,8 @@ const OPTION_ID = /^[a-zA-Z][a-zA-Z0-9_]{0,39}$/;
 const SCRIPT = /^[a-z0-9][a-z0-9_-]{0,47}\.js$/;
 const FILE = /^[a-z0-9][a-z0-9_-]{0,47}\.(js|json)$/;
 const SITE = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-const CAPABILITIES = new Set(['media', 'back', 'refresh', 'pip']);
+// What each capability asks the package to register. Capabilities a browser doesn't know are ignored by it.
+const CAPABILITIES = new Map([['media', 'media'], ['pull-to-refresh', 'pullToRefresh']]);
 const MODES = new Set(['switch', 'text', 'texts', 'select']);
 const FORBIDDEN = [
   [/\bfetch\s*\(/, 'fetch'], [/\bXMLHttpRequest\b/, 'XMLHttpRequest'], [/\bWebSocket\b/, 'WebSocket'],
@@ -100,11 +101,11 @@ for (const id of packages()) {
     const context = vm.createContext({ window, document, MutationObserver: observer, location: window.location, console,
       setTimeout, clearTimeout, URL });
     context.window.window = context.window;
-    const experience = { options: {}, register: (hooks) => Object.assign(registered, hooks) };
+    const experience = { options: {}, register: (hooks) => Object.defineProperties(registered, Object.getOwnPropertyDescriptors(hooks)) };
     for (const s of e.scripts) {
       const code = readFileSync(join(root, id, s.file), 'utf8');
       vm.runInContext(`(function (experience) {\n${code}\n})`, context)(experience);
     }
-    for (const c of e.capabilities || []) assert.ok(registered[c], `declares ${c} but does not register it`);
+    for (const c of e.capabilities || []) assert.ok(CAPABILITIES.get(c) in registered, `declares ${c} but does not register ${CAPABILITIES.get(c)}`);
   });
 }

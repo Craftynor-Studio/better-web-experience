@@ -31,7 +31,7 @@ tests/                 checks every package (node --test)
     { "file": "media.js", "run": "document_start" },
     { "file": "overlay.js", "run": "page_ready" }
   ],
-  "capabilities": ["media", "back", "refresh", "pip"],
+  "capabilities": ["media", "pull-to-refresh"],
   "options": []
 }
 ```
@@ -43,7 +43,7 @@ tests/                 checks every package (node --test)
 | `version` | Whole number, raised by the release script whenever a file of the package changes. |
 | `sites` | 1–32 host patterns. `example.com` means that host only; `*.example.com` means any subdomain of it, not the bare domain. Only `https` pages match. |
 | `scripts` | 1–16 files, run in the order listed. `document_start`: before the page's own scripts. `page_ready`: once the document has loaded (DOMContentLoaded). Scripts run in the top frame only. |
-| `capabilities` | The browser hooks the package implements: `media`, `back`, `refresh`, `pip` (see below). |
+| `capabilities` | What the package asks of the browser: `media`, `pull-to-refresh` (see below). A browser ignores names it doesn't know. |
 | `options` | Optional user settings (see below). |
 
 Every Experience also has one **master switch**; it isn't declared here. When it is off, no script runs.
@@ -83,31 +83,26 @@ Each script is wrapped by the browser and receives one object, `experience`:
 
 ```js
 experience.options      // the resolved option values (read-only)
-experience.register({   // call once with the hooks named in "capabilities"
-  media: {
-    state() { return { found, playing, title, artist, artworkUrl, url, positionMs, durationMs, canSkip }; },
+experience.register({   // call once
+  media: {                 // capability "media"
+    state() { return { found, playing, title, artist, artworkUrl, url, positionMs, durationMs, canNext, canPrevious }; },
     play() {}, pause() {}, next() {}, previous() {}, seek(positionMs) {}
   },
-  back() { return 'handled' | 'exit' | 'unhandled'; },
-  refresh() { return true /* handled */ || false /* let the browser reload */; },
-  canRefresh() { return true /* pull-to-refresh allowed */ || false /* a swipe down belongs to the page */; },
-  pip: { enter() {}, exit() {} }
+  pullToRefresh: true      // capability "pull-to-refresh"
 });
 ```
 
 - **media**: the browser asks for `state()` about every 1.5 s while the page plays media, for the notification and
-  lock screen. `canSkip: true` shows next and previous. Commands come from the notification.
-- **back**: asked first when the user presses Back. `handled` stops there; `exit` leaves the page (goes Home) without
-  using the page history; `unhandled` lets the browser go back as usual.
-- **refresh**: asked first on pull-to-refresh. Return `true` if the script refreshed its own content. If the script
-  isn't running (for example the page failed to load), returns `false`, throws or takes longer than 300 ms, the browser
-  reloads the page.
-- **canRefresh** (optional, part of `refresh`): return `false` while a swipe down at the top of the page should go to
-  the page instead of starting pull-to-refresh, for example a full-screen player that shrinks on swipe down. The
-  browser checks it a few times a second, because the gesture starts before the page could be asked. Without it,
-  pull-to-refresh is always available.
-- **pip**: `enter()` before picture-in-picture or the browser's mini player window, `exit()` after. Only needed when the
-  browser can't simply crop the page to the video.
+  lock screen. Only the fields it returns count; the browser fills the rest from the site's own Media Session
+  (`navigator.mediaSession`), then from the media element, the page title and `og:image`. So a site whose Media
+  Session is complete needs no `media` hook. `canNext` / `canPrevious` show those buttons. Notification commands go to
+  the hook first; one the hook doesn't have goes to the site's Media Session handler, then to the media element.
+- **pull-to-refresh**: `pullToRefresh: true` means the page draws pull-to-refresh itself, so the browser turns its own
+  off. The browser checks once after each page load; if that load failed, the browser keeps its own so the page can
+  still be reloaded.
+
+Back is always the browser's ordinary Back through the page's history. A script that wants Back to close something
+(a player, a sheet) adds a history entry when it opens it and closes it on `popstate`.
 
 The browser calls hooks from outside the page and accepts only small JSON-compatible results.
 

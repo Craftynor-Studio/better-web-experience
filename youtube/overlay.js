@@ -4,8 +4,9 @@
   var API_NAME = '__playSiteOverlay';
   var HOST_ID = '__play-site-overlay';
   var STYLE_ID = '__play-site-overlay-style';
+  var PULL_ID = '__play-site-pull';
   var FRAME_STYLE_ID = '__play-site-overlay-frame-style';
-  var VERSION = 10;
+  var VERSION = 11;
 
   if (window[API_NAME] && window[API_NAME].version === VERSION) return;
   if (window[API_NAME] && typeof window[API_NAME].destroy === 'function') {
@@ -56,6 +57,110 @@
   };
   var api = null;
 
+  // History: the player's states are entries in the page's own history, so the browser's ordinary Back walks them.
+  //   Opening a video over page X adds "X, player shrunk" and "X, player full" on top of X.
+  //   A sheet opened in the full player (comments, settings…) adds "sheet".
+  // Back from "sheet" closes the sheet; from "full" shrinks the player; from "shrunk" down to X closes it (at the page
+  // it was opened on). Back to another YouTube page keeps the small player playing. When the player changes by
+  // itself (swipe down, ×, a sheet closed by tapping), its entry is dropped with a silent Back so none go stale.
+  // The entries keep the URL and YouTube's own state, and media.js keeps these transitions away from YouTube's router.
+  var MARK = '__bwePlayer';
+  var entries = { current: entryMark(window.history.state), href: location.href, quiet: [], quietTimer: 0 };
+
+  function entryMark(data) {
+    return data && typeof data === 'object' && typeof data[MARK] === 'string' ? data[MARK] : '';
+  }
+
+  function pushEntry(mark) {
+    try {
+      var data = window.history.state;
+      var copy = data && typeof data === 'object' && !Array.isArray(data) ? Object.assign({}, data) : {};
+      copy[MARK] = mark;
+      window.history.pushState(copy, '', location.href);
+      entries.current = mark;
+      entries.href = location.href;
+    } catch (_) {}
+  }
+
+  // Steps back over [count] entries without acting on them, then runs [after].
+  function skipEntries(count, after) {
+    if (count <= 0) { if (after) after(); return; }
+    for (var i = 0; i < count; i += 1) entries.quiet.push(i === count - 1 ? after || null : null);
+    window.clearTimeout(entries.quietTimer);
+    // If the browser never answers (no entry to go back to), don't swallow a later real Back.
+    entries.quietTimer = window.setTimeout(function () {
+      var pending = entries.quiet.splice(0);
+      pending.forEach(function (run) { if (run) run(); });
+    }, 1500);
+    window.history.go(-count);
+  }
+
+  // Player entries above the current page entry (that the player's own change made stale).
+  function playerEntriesAbove(level) {
+    var order = ['', 'mini', 'full', 'sheet'];
+    return Math.max(0, order.indexOf(entries.current) - order.indexOf(level));
+  }
+
+  // Called by media.js for every popstate, before YouTube sees it. 'swallow' keeps the event from YouTube's router.
+  function onPopState(event) {
+    var previous = entries.current;
+    var sameUrl = location.href === entries.href;
+    var next = entryMark(event && event.state);
+    entries.current = next;
+    entries.href = location.href;
+    var verdict = sameUrl ? 'swallow' : '';
+    if (entries.quiet.length) {
+      var after = entries.quiet.shift();
+      if (!entries.quiet.length) window.clearTimeout(entries.quietTimer);
+      if (after) window.setTimeout(after, 0);
+      return verdict;
+    }
+    var open = !!state.host && state.mode !== 'closed';
+    if (!open) {
+      // An entry of a player that is gone: keep going back.
+      if (next) skipEntries(1);
+      return verdict;
+    }
+    if (previous === 'sheet' && next !== 'sheet') {
+      closeFrameSubview();
+      window.setTimeout(checkSheet, 450);
+    }
+    if (next === 'full' || next === 'sheet') {
+      if (state.mode === 'mini') expandAnimated();
+    } else if (state.mode === 'full') {
+      minimizeAnimated();
+    } else if (previous === 'mini' && !next && sameUrl) {
+      close();
+    }
+    return verdict;
+  }
+
+  // A sheet in the full player gets its own entry, so Back closes it; one closed by tapping drops it again.
+  var sheetTimer = 0;
+  function scheduleSheetCheck() {
+    window.clearTimeout(sheetTimer);
+    sheetTimer = window.setTimeout(function () { checkSheet(); sheetTimer = window.setTimeout(checkSheet, 600); }, 400);
+  }
+
+  function checkSheet() {
+    if (state.mode !== 'full' || entries.quiet.length || (entries.current !== 'full' && entries.current !== 'sheet')) return;
+    var frameDocument = getFrameDocument();
+    if (!frameDocument) return;
+    var open = !!topVisibleFrameSubview(frameDocument);
+    if (open && entries.current === 'full') pushEntry('sheet');
+    else if (!open && entries.current === 'sheet') skipEntries(1);
+  }
+
+  // A real playback failure in the player: a media error or YouTube's own error screen. Paused, buffering and loading
+  // don't count.
+  function playbackError(doc) {
+    if (!doc) return false;
+    var video = doc.querySelector('video');
+    if (video && video.error) return true;
+    var screen = doc.querySelector('.ytp-error, ytm-player-error-message-renderer, .player-error-message, .ytp-error-content');
+    return !!(screen && screen.getClientRects().length);
+  }
+
   function installStyles() {
     if (document.getElementById(STYLE_ID)) return;
     var style = document.createElement('style');
@@ -72,6 +177,10 @@
       '#' + HOST_ID + ' .play-overlay-mini-close{right:6px;font:400 23px/1 system-ui,sans-serif;}',
       '#' + HOST_ID + ' .play-overlay-spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.38);border-top-color:#fff;border-radius:50%;animation:play-overlay-spin .75s linear infinite;}',
       'ytm-pivot-bar-renderer{padding-bottom:0!important;}',
+      '#' + PULL_ID + '{position:fixed;left:50%;top:0;width:40px;height:40px;margin-left:-20px;border-radius:50%;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3);z-index:2147483647;display:grid;place-items:center;pointer-events:none;opacity:0;transform:translate3d(0,-40px,0);}',
+      '#' + PULL_ID + ' span{box-sizing:border-box;width:20px;height:20px;border:2.5px solid #0f0f0f;border-right-color:transparent;border-radius:50%;}',
+      'html[dark] #' + PULL_ID + '{background:#282828;}html[dark] #' + PULL_ID + ' span{border-color:#f1f1f1;border-right-color:transparent;}',
+      '#' + PULL_ID + '.play-pull-spin span{animation:play-overlay-spin .75s linear infinite;}',
       '@keyframes play-overlay-spin{to{transform:rotate(360deg)}}',
     ].join('');
     (document.head || document.documentElement).appendChild(style);
@@ -704,7 +813,7 @@
       if (gesture.mode === 'mini') {
         event.preventDefault();
         event.stopImmediatePropagation();
-        expandAnimated();
+        expandByUser();
       }
       return;
     }
@@ -714,7 +823,15 @@
     if (gesture.mode === 'full') {
       var downwardVelocity = dy / elapsed;
       if (dy > Math.min(150, window.innerHeight * 0.17) || downwardVelocity > 0.55) {
-        animateFullToMini(gesture);
+        if (playbackError(getFrameDocument())) {
+          // Pulling down a video that failed loads it again instead of shrinking it.
+          animateFullBack();
+          showPullSpinner(1200);
+          api.reload();
+        } else {
+          animateFullToMini(gesture);
+          skipEntries(playerEntriesAbove('mini'));
+        }
       } else {
         animateFullBack();
       }
@@ -793,7 +910,14 @@
     event.stopImmediatePropagation();
     // Pointer-up may already have started the reverse animation. Keep
     // swallowing this generated click until that animation has completed.
-    if (state.mode === 'mini') expandAnimated();
+    if (state.mode === 'mini') expandByUser();
+  }
+
+  // Tapping the small player opens it full, as a new entry so Back shrinks it again.
+  function expandByUser() {
+    if (state.mode !== 'mini' || !expandAnimated()) return false;
+    if (entries.current !== 'full') pushEntry('full');
+    return true;
   }
 
   function tryAutoUnmute() {
@@ -1058,8 +1182,15 @@
       state.miniGestureSurface.style.opacity = '0';
     }
     state.animationTimer = window.setTimeout(function () {
-      close();
+      closeByUser();
     }, 185);
+    return true;
+  }
+
+  // × or swiping the small player away: close it and drop its entry.
+  function closeByUser() {
+    if (!close()) return false;
+    skipEntries(playerEntriesAbove(''));
     return true;
   }
 
@@ -1123,7 +1254,7 @@
     miniCloseButton.addEventListener('click', function (event) {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      closeByUser();
     });
     miniGestureSurface.appendChild(miniMediaButton);
     miniGestureSurface.appendChild(miniCloseButton);
@@ -1219,9 +1350,12 @@
       return false;
     }
     if (parsed.origin !== location.origin || !isPlaybackPath(parsed)) return false;
+    var before = state.host ? state.mode : 'closed';
 
     if (!state.host) {
       createOverlay(parsed.href);
+      pushEntry('mini');
+      pushEntry('full');
       return true;
     }
 
@@ -1234,23 +1368,26 @@
       }
     }
     showFull();
+    if (before === 'closed') pushEntry('mini');
+    if (before !== 'full' && entries.current !== 'full') pushEntry('full');
     return true;
   }
 
+  // A link in the player to a page that isn't a video: shrink the player, drop its entries, then open the page.
   function navigateParentPage(url) {
     minimize();
-    try {
-      var link = document.createElement('a');
-      link.href = url;
-      link.hidden = true;
-      link.setAttribute('aria-hidden', 'true');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      return true;
-    } catch (_) {
-      return false;
-    }
+    skipEntries(playerEntriesAbove('mini'), function () {
+      try {
+        var link = document.createElement('a');
+        link.href = url;
+        link.hidden = true;
+        link.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } catch (_) {}
+    });
+    return true;
   }
 
   function isPlaybackPath(url) {
@@ -1269,7 +1406,9 @@
   }
 
   function onFrameClick(event) {
-    if (window[API_NAME] !== api || event.defaultPrevented || event.button !== 0 ||
+    if (window[API_NAME] !== api) return;
+    if (state.mode === 'full') scheduleSheetCheck();
+    if (event.defaultPrevented || event.button !== 0 ||
         event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     var anchor = clickedAnchor(event);
     if (!anchor) return;
@@ -1432,18 +1571,6 @@
     return true;
   }
 
-  function handleBackAction() {
-    if (!state.host || state.mode === 'closed') return 'unhandled';
-    // The mini player leaves Back to the page; media.js steps back through the site's own pages.
-    if (state.mode === 'mini') return 'unhandled';
-    if (closeFrameSubview()) return 'handled';
-    return minimizeAnimated() ? 'handled' : 'unhandled';
-  }
-
-  function handleBack() {
-    return handleBackAction() === 'handled';
-  }
-
   function onParentClick(event) {
     if (window[API_NAME] !== api) return;
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -1467,15 +1594,139 @@
 
   function onKeyDown(event) {
     if (window[API_NAME] !== api) return;
-    if (event.key === 'Escape' && state.host && state.mode !== 'closed') {
+    if (event.key === 'Escape' && state.host && state.mode !== 'closed' && entries.current) {
       event.preventDefault();
-      handleBack();
+      window.history.back();
     }
   }
 
   function onResize() {
     if (window[API_NAME] !== api) return;
     if (state.mode === 'mini') applyMiniGeometry();
+  }
+
+  // Pull-to-refresh, drawn here because the browser leaves the gesture to this page. It follows the browser's own:
+  // starts in the top sixth of a page scrolled to the top, reveals at 0.45× the pull up to 112px, refreshes from 72px.
+  // The full player doesn't take it: a swipe down there shrinks the player (or reloads a failed video).
+  var pull = null;
+  var pullBusy = false;
+
+  function pullView() {
+    var view = document.getElementById(PULL_ID);
+    if (view) return view;
+    installStyles();
+    view = document.createElement('div');
+    view.id = PULL_ID;
+    view.setAttribute('aria-hidden', 'true');
+    view.appendChild(document.createElement('span'));
+    (document.body || document.documentElement).appendChild(view);
+    return view;
+  }
+
+  function drawPull(distance) {
+    var view = pullView();
+    view.classList.remove('play-pull-spin');
+    view.style.transition = 'none';
+    view.style.opacity = String(Math.min(1, distance / 36));
+    view.style.transform = 'translate3d(0,' + (distance - 40) + 'px,0)';
+    view.firstChild.style.transform = 'rotate(' + Math.round(Math.min(1, distance / 72) * 270) + 'deg)';
+  }
+
+  function hidePull() {
+    var view = document.getElementById(PULL_ID);
+    pullBusy = false;
+    if (!view) return;
+    view.style.transition = 'transform 160ms ease,opacity 160ms ease';
+    view.style.opacity = '0';
+    view.style.transform = 'translate3d(0,-40px,0)';
+    view.classList.remove('play-pull-spin');
+  }
+
+  function showPullSpinner(milliseconds) {
+    var view = pullView();
+    pullBusy = true;
+    view.classList.add('play-pull-spin');
+    view.style.transition = 'transform 160ms ease,opacity 160ms ease';
+    view.style.opacity = '1';
+    view.style.transform = 'translate3d(0,16px,0)';
+    if (milliseconds) window.setTimeout(hidePull, milliseconds);
+  }
+
+  // With the small player open, YouTube's router opens the same page again so the video keeps playing. Otherwise, or
+  // if the router doesn't take the click (YouTube isn't responding), the page is reloaded.
+  function refreshPage() {
+    showPullSpinner(0);
+    var current = new URL(location.href);
+    if (state.host && state.mode === 'mini' && !isPlaybackPath(current)) {
+      var link = document.createElement('a');
+      link.href = location.href;
+      link.hidden = true;
+      (document.body || document.documentElement).appendChild(link);
+      var click = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+      link.dispatchEvent(click);
+      link.remove();
+      if (click.defaultPrevented) {
+        window.scrollTo(0, 0);
+        window.setTimeout(hidePull, 900);
+        return;
+      }
+    }
+    location.reload();
+  }
+
+  function scrolledInside(target) {
+    for (var node = target; node && node.nodeType === 1 && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+      if (node.scrollTop > 0) {
+        var overflow = window.getComputedStyle(node).overflowY;
+        if (overflow === 'auto' || overflow === 'scroll') return true;
+      }
+    }
+    return false;
+  }
+
+  function pageAtTop() {
+    return (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+  }
+
+  function onPullStart(event) {
+    pull = null;
+    if (window[API_NAME] !== api || pullBusy || state.mode === 'full' || event.touches.length !== 1) return;
+    var touch = event.touches[0];
+    if (touch.clientY < 0 || touch.clientY > window.innerHeight / 6 || !pageAtTop()) return;
+    if (state.host && state.host.contains(event.target)) return;
+    if (scrolledInside(event.target)) return;
+    pull = { x: touch.clientX, y: touch.clientY, active: false, distance: 0 };
+  }
+
+  function onPullMove(event) {
+    if (!pull) return;
+    if (event.touches.length !== 1 || state.mode === 'full') {
+      if (pull.active) hidePull();
+      pull = null;
+      return;
+    }
+    var touch = event.touches[0];
+    var dx = touch.clientX - pull.x;
+    var dy = touch.clientY - pull.y;
+    if (!pull.active) {
+      if (dy < -9 || Math.abs(dx) > Math.max(9, dy)) { pull = null; return; }
+      if (dy <= 0 || dy <= Math.abs(dx) * 1.3) return;
+      // Hold the page still from the first downward move, while that can still be cancelled.
+      if (event.cancelable) event.preventDefault();
+      if (dy <= 9 || !pageAtTop()) return;
+      pull.active = true;
+    }
+    if (event.cancelable) event.preventDefault();
+    pull.distance = Math.min(112, Math.max(0, dy * 0.45));
+    drawPull(pull.distance);
+  }
+
+  function onPullEnd(event) {
+    var current = pull;
+    pull = null;
+    if (!current || !current.active) return;
+    if (event.type === 'touchend' && current.distance >= 72) refreshPage();
+    else hidePull();
   }
 
   function destroy() {
@@ -1489,6 +1740,12 @@
     document.removeEventListener('click', onParentClick, true);
     window.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener('touchstart', onPullStart, true);
+    window.removeEventListener('touchmove', onPullMove, true);
+    window.removeEventListener('touchend', onPullEnd, true);
+    window.removeEventListener('touchcancel', onPullEnd, true);
+    var pullIndicator = document.getElementById(PULL_ID);
+    if (pullIndicator) pullIndicator.remove();
     state.host = null;
     state.frame = null;
     state.miniGestureSurface = null;
@@ -1505,9 +1762,8 @@
     close: close,
     minimize: minimize,
     expand: showFull,
-    handleBack: handleBack,
-    handleBackAction: handleBackAction,
     destroy: destroy,
+    onPopState: onPopState,
     isOpen: function () { return !!state.host && state.mode !== 'closed'; },
     mode: function () { return state.mode; },
     // Loads the current video again in the same player (after a playback error).
@@ -1524,4 +1780,8 @@
   document.addEventListener('click', onParentClick, true);
   window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('resize', onResize);
+  window.addEventListener('touchstart', onPullStart, { capture: true, passive: true });
+  window.addEventListener('touchmove', onPullMove, { capture: true, passive: false });
+  window.addEventListener('touchend', onPullEnd, true);
+  window.addEventListener('touchcancel', onPullEnd, true);
 }());
