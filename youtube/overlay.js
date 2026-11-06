@@ -728,6 +728,12 @@
     }, 185);
   }
 
+  function armMiniHold(gesture) {
+    window.clearTimeout(gesture.holdTimer);
+    gesture.holdTimer = window.setTimeout(function () {
+      if (state.gesture === gesture) gesture.freePosition = true;
+    }, 3000);
+  }
   function onFramePointerDown(event) {
     if (window[API_NAME] !== api || event.button !== 0 || state.mode === 'closed') return;
     if (state.mode === 'full' && isFrameFullscreen()) return;
@@ -760,7 +766,10 @@
     var dy = event.clientY - gesture.startY;
     if (gesture.mode === 'mini') {
       if (Date.now() - (gesture.stillAt || gesture.startTime) >= 3000) gesture.freePosition = true;
-      if (!gesture.freePosition && Math.hypot(event.clientX - gesture.lastX, event.clientY - gesture.lastY) > 2) gesture.stillAt = Date.now();
+      if (!gesture.freePosition && Math.hypot(event.clientX - gesture.anchorX, event.clientY - gesture.anchorY) > 8) {
+        gesture.anchorX = event.clientX; gesture.anchorY = event.clientY;
+        gesture.stillAt = Date.now(); armMiniHold(gesture);
+      }
     }
     gesture.lastX = event.clientX;
     gesture.lastY = event.clientY;
@@ -809,6 +818,7 @@
   function onFramePointerEnd(event) {
     var gesture = state.gesture;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
+    window.clearTimeout(gesture.holdTimer);
     state.gesture = null;
     var elapsed = Math.max(1, Date.now() - gesture.startTime);
     var dx = event.clientX - gesture.startX;
@@ -862,16 +872,16 @@
       var startVertical = gesture.startHostY + metrics.height / 2 < window.innerHeight / 2 ? 'top' : 'bottom';
       var horizontalTravel = Math.max(1, metrics.maxX - metrics.margin);
       var verticalTravel = Math.max(1, metrics.maxY - metrics.margin);
-      var horizontalThreshold = Math.max(32, horizontalTravel * 0.26);
-      var verticalThreshold = Math.max(56, verticalTravel * 0.26);
+      var horizontalThreshold = Math.max(32, horizontalTravel * 0.18);
+      var verticalThreshold = Math.max(48, verticalTravel * 0.18);
       var horizontal = dx <= -horizontalThreshold ? 'left' :
         (dx >= horizontalThreshold ? 'right' : startHorizontal);
-      var vertical = dy <= -verticalThreshold ? 'top' :
-        (dy >= verticalThreshold ? 'bottom' : startVertical);
+      var vertical = dy <= -verticalThreshold || dy / elapsed < -0.7 ? 'top' :
+        (dy >= verticalThreshold || dy / elapsed > 0.7 ? 'bottom' : null);
       state.miniX = horizontal === 'left' ? metrics.margin : metrics.maxX;
-      state.miniY = vertical === 'top' ? metrics.margin : metrics.maxY;
+      state.miniY = vertical === 'top' ? metrics.margin : vertical === 'bottom' ? metrics.maxY : Math.max(metrics.margin, Math.min(metrics.maxY, currentY));
       state.lastDockHorizontal = horizontal;
-      state.lastDockVertical = vertical;
+      state.lastDockVertical = vertical || startVertical;
       setMiniPosition(
         state.miniX,
         state.miniY,
@@ -886,6 +896,7 @@
     var gesture = state.gesture;
     state.gesture = null;
     if (!gesture) return;
+    window.clearTimeout(gesture.holdTimer);
     if (gesture.mode === 'full') animateFullBack(); else applyMiniGeometry();
   }
 
@@ -913,7 +924,9 @@
       currentY: hostRect.top,
       miniMetrics: metrics,
       wasBottomDocked: Math.abs(hostRect.top - metrics.maxY) < 14,
+      anchorX: event.clientX, anchorY: event.clientY, stillAt: Date.now(),
     };
+    armMiniHold(state.gesture);
     try { event.target.setPointerCapture(event.pointerId); } catch (_) {}
   }
 
