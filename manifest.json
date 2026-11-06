@@ -1,19 +1,19 @@
 {
   "format": "better-web-experience",
   "version": 1,
-  "published": 1793066102624,
-  "source": "db256a40da2457c7b3e2621773ba84986cfee84f",
+  "published": 1793936688042,
+  "source": "6deaa505e36509c01cf3f132a8c45ee4c4bf3230",
   "experiences": [
     {
       "id": "youtube",
-      "version": 3,
+      "version": 4,
       "minApp": 1,
       "disabled": false,
-      "fingerprint": "8119ee00e5e97e2d95cbb55d2aa0cb8bb359925e6cad9ed308e8862e220f551a",
+      "fingerprint": "039db0b91fe4ffb166a5d777cc704a4960d39b73ed6ef292f2590f1c05ccd136",
       "files": [
         {
           "name": "youtube/experience.json",
-          "sha256": "a0f7d38dc80280c8d2d0aca64aa78f453748c5994ffb63edce7840d197d75210"
+          "sha256": "a070c9d867bc95540b0554cd584b1dac7b5d99b87b4c1e439049a5aad55a24a7"
         },
         {
           "name": "youtube/media.js",
@@ -21,7 +21,7 @@
         },
         {
           "name": "youtube/overlay.js",
-          "sha256": "6f26bad625eeb8e6634291061872c789a4faad028e39b9bd9b4e2990213df7e9"
+          "sha256": "c8c58375e04a768870a480214cbcb989e862decd41506418f3651d30c6e45d2f"
         }
       ]
     }

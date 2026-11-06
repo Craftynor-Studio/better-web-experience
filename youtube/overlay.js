@@ -168,11 +168,11 @@
     style.textContent = [
       '#' + HOST_ID + '{box-sizing:border-box;background:#000;overflow:hidden;}',
       '#' + HOST_ID + ' iframe{display:block;border:0;background:#000;}',
-      '#' + HOST_ID + ' .play-overlay-mini-gesture{position:absolute;inset:0;z-index:2147483647;background:transparent;touch-action:none;pointer-events:auto;}',
+      '#' + HOST_ID + ' .play-overlay-mini-gesture{position:absolute;inset:0;z-index:2147483647;background:rgba(0,0,0,.18);touch-action:none;pointer-events:auto;}',
       '#' + HOST_ID + ' .play-overlay-mini-gesture[hidden]{display:none!important;}',
       '#' + HOST_ID + '.play-overlay-expanding .play-overlay-mini-button{display:none!important;}',
-      '#' + HOST_ID + ' .play-overlay-mini-button{position:absolute;top:6px;z-index:3;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:rgba(15,15,15,.72);color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.45);touch-action:manipulation;}',
-      '#' + HOST_ID + ' .play-overlay-mini-button svg{width:18px;height:18px;fill:currentColor;}',
+      '#' + HOST_ID + ' .play-overlay-mini-button{position:absolute;top:0;z-index:3;display:grid;place-items:center;width:48px;height:48px;padding:0;border:0;background:transparent;color:#fff;box-shadow:none;touch-action:manipulation;}',
+      '#' + HOST_ID + ' .play-overlay-mini-button svg{width:16px;height:16px;fill:currentColor;}',
       '#' + HOST_ID + ' .play-overlay-mini-media{left:6px;}',
       '#' + HOST_ID + ' .play-overlay-mini-close{right:6px;font:400 23px/1 system-ui,sans-serif;}',
       '#' + HOST_ID + ' .play-overlay-spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.38);border-top-color:#fff;border-radius:50%;animation:play-overlay-spin .75s linear infinite;}',
@@ -216,6 +216,7 @@
   }
 
   function emitChange() {
+    if (window.__btMini) window.__btMini.notify(state.mode === 'mini' ? 'mini' : state.mode === 'closed' ? 'close' : 'inline');
     window.dispatchEvent(new CustomEvent('play-site-overlay-change', {
       detail: { mode: state.mode, url: state.url },
     }));
@@ -757,6 +758,10 @@
     }
     var dx = event.clientX - gesture.startX;
     var dy = event.clientY - gesture.startY;
+    if (gesture.mode === 'mini') {
+      if (Date.now() - (gesture.stillAt || gesture.startTime) >= 3000) gesture.freePosition = true;
+      if (!gesture.freePosition && Math.hypot(event.clientX - gesture.lastX, event.clientY - gesture.lastY) > 2) gesture.stillAt = Date.now();
+    }
     gesture.lastX = event.clientX;
     gesture.lastY = event.clientY;
 
@@ -808,6 +813,15 @@
     var elapsed = Math.max(1, Date.now() - gesture.startTime);
     var dx = event.clientX - gesture.startX;
     var dy = event.clientY - gesture.startY;
+    if (gesture.mode === 'mini' && (gesture.freePosition || Date.now() - (gesture.stillAt || gesture.startTime) >= 3000)) {
+      event.preventDefault();event.stopImmediatePropagation();
+      var freeMetrics = gesture.miniMetrics;
+      state.miniX = Math.max(freeMetrics.margin, Math.min(freeMetrics.maxX, gesture.currentX));
+      state.miniY = Math.max(freeMetrics.margin, Math.min(freeMetrics.maxY, gesture.currentY));
+      state.suppressMiniClickUntil = Date.now() + 350;
+      setMiniPosition(state.miniX, state.miniY, freeMetrics, 0, 'none');
+      return;
+    }
 
     if (!gesture.active) {
       if (gesture.mode === 'mini') {
@@ -910,7 +924,7 @@
     event.stopImmediatePropagation();
     // Pointer-up may already have started the reverse animation. Keep
     // swallowing this generated click until that animation has completed.
-    if (state.mode === 'mini') expandByUser();
+    if (state.mode === 'mini' && Date.now() >= (state.suppressMiniClickUntil || 0)) expandByUser();
   }
 
   // Tapping the small player opens it full, as a new entry so Back shrinks it again.
@@ -1777,6 +1791,30 @@
     },
   };
   window[API_NAME] = api;
+  var miniAdapter = {
+    policy: { controls: 'site', tap: 'expand', visibility: 'always' },
+    video: function () { var doc = getFrameDocument() || document; return doc.querySelector('video'); },
+    mode: function () { return state.mode === 'mini' ? 'mini' : 'inline'; },
+    mini: function () { return api.isOpen() ? api.minimize() : false; },
+    inline: function () { return api.isOpen() ? api.expand() : true; },
+    controls: function (show) {
+      var doc = getFrameDocument() || document;
+      var id = '__bt-native-control-owner';
+      var style = doc.getElementById(id);
+      if (show) { if (style) style.remove(); }
+      else if (!style) {
+        style = doc.createElement('style'); style.id = id;
+        style.textContent = '.ytp-chrome-top,.ytp-chrome-bottom,.ytp-gradient-top,.ytp-gradient-bottom,.ytp-large-play-button,.player-controls-content,.player-controls-middle,.player-controls-bottom{visibility:hidden!important;pointer-events:none!important}';
+        doc.documentElement.append(style);
+      }
+      if (state.miniGestureSurface) state.miniGestureSurface.style.visibility = show ? '' : 'hidden';
+      if (state.miniMediaButton) state.miniMediaButton.style.visibility = show ? '' : 'hidden';
+      if (state.miniCloseButton) state.miniCloseButton.style.visibility = show ? '' : 'hidden';
+      return true;
+    }
+  };
+  if (typeof experience.registerMiniPlayer === 'function') experience.registerMiniPlayer(miniAdapter);
+  else if (window.__btMini) window.__btMini.registerAdapter(miniAdapter);
   document.addEventListener('click', onParentClick, true);
   window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('resize', onResize);
@@ -1785,3 +1823,4 @@
   window.addEventListener('touchend', onPullEnd, true);
   window.addEventListener('touchcancel', onPullEnd, true);
 }());
+
