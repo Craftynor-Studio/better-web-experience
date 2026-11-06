@@ -106,6 +106,36 @@ Back is always the browser's ordinary Back through the page's history. A script 
 
 The browser calls hooks from outside the page and accepts only small JSON-compatible results.
 
+### Mini player adapter
+
+BrowseTube supplies `window.__btMini` before Experience scripts. A package can call
+`experience.registerMiniPlayer(adapter)` to adapt a player without copying the shared mini player:
+
+```js
+experience.registerMiniPlayer({
+  video() { return document.querySelector('video'); },
+  policy: { controls: 'site', tap: 'expand', visibility: 'always' },
+  mini() { return player.minimize(); }, // boolean or Promise<boolean>; false means unsupported
+  inline() { return player.expand(); },
+  controls(show) { /* hide/restore the site's controls, including custom overlays */ return true; },
+  mode() { return player.isMini() ? 'mini' : 'inline'; }
+  // seek(seconds) is optional: otherwise the browser clamps video.currentTime to seekable ranges.
+});
+```
+
+All hooks are optional. Without geometry hooks, the runtime supplies a draggable mini player over the
+original video element. `controls: 'app'` uses the common controls and seek track within the page;
+`controls: 'site'` retains the site's controls, without an additional seek track. `tap` is `expand` or
+`controls`; `visibility` is `always` or `auto`. Site-driven changes should call
+`window.__btMini.notify('mini' | 'inline' | 'close')`. Native handoff calls `controls(false)`;
+returning to site mini restores the declared owner. Explicit Expand restores inline playback and
+disarms handoff. Close pauses playback, restores inline presentation and removes the notification.
+
+The generic runtime supports reachable HTML video elements and same-origin frames. Cross-origin
+players without a reachable adapter, closed shadow roots and DRM-protected surfaces can be unavailable;
+the app reports unsupported mini playback rather than replacing the video or reloading the page.
+The YouTube adapter retains site controls, always-visible compact buttons and tap-to-expand behavior.
+
 ## Security rules
 
 Experiences run inside signed-in pages, so every pull request is reviewed against these rules. The tests enforce the
